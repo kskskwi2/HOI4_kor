@@ -1,3 +1,5 @@
+# 만약 번역 하는곳이 $ 같은거 있으면 번역 잘 안됩니다 언젠간 고칠게요
+
 import os
 import re
 import logging
