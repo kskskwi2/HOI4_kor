@@ -10,7 +10,7 @@
 
 ---
 
-```markdown
+
 # 🎮 게임 로컬라이제이션 자동 번역기 (Paradox YML Translator)
 
 Paradox Interactive 스타일의 `l_english.yml` 같은 게임 로컬라이제이션 파일을 쉽게 번역할 수 있는 웹 앱입니다.  
