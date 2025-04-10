@@ -1,4 +1,3 @@
-# 만약 번역 하는곳이 $ 같은거 있으면 번역 잘 안됩니다 언젠간 고칠게요
 
 import os
 import re
@@ -50,7 +49,7 @@ def load_paradox_localization_file(file_path):
             continue
         
         # 키-값 쌍 파싱 (예: cheat_category:0 "텍스트")
-        match = re.match(r'^([^:]+:\s*\d+\s*)"(.+)"', line)
+        match = re.match(r'^([^:]+:\s*\d*\s*)"(.+)"', line)
         if match:
             key_part = match.group(1)
             value_text = match.group(2)
