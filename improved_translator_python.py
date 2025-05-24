@@ -114,22 +114,21 @@ def sanitize_text_for_ai(text):
     if not text:
         return text
     
-    # 연속된 공백이나 탭을 줄바꿈으로 변환 (4개 이상의 공백이나 탭)
-    # 들여쓰기 패턴 감지 및 변환
+    # 모든 들여쓰기를 강제로 제거하고 \n으로 교체
     lines = text.split('\n')
     processed_lines = []
     
     for line in lines:
-        # 줄 시작 부분의 들여쓰기 감지 (4개 이상의 공백이나 탭)
-        if re.match(r'^(\s{4,}|\t{2,})', line):
-            # 들여쓰기를 제거하고 이전 줄과 합치기 위해 \n 추가
-            processed_line = line.lstrip()
-            if processed_lines:
-                processed_lines[-1] += '\\n' + processed_line
+        # 줄 시작 부분의 모든 공백과 탭 제거
+        stripped_line = line.lstrip()
+        if stripped_line:  # 빈 줄이 아닌 경우에만 처리
+            # 원래 줄에 들여쓰기가 있었다면 \n을 앞에 추가
+            if line != stripped_line and processed_lines:
+                processed_lines[-1] += '\\n' + stripped_line
             else:
-                processed_lines.append(processed_line)
+                processed_lines.append(stripped_line)
         else:
-            processed_lines.append(line)
+            processed_lines.append('')  # 빈 줄 유지
     
     return '\n'.join(processed_lines)
 
@@ -141,10 +140,46 @@ def restore_text_formatting(text):
     # \\n을 실제 줄바꿈으로 변환
     text = text.replace('\\n', '\n')
     
+    # AI 응답 정리 (불필요한 설명 제거)
+    text = clean_ai_response(text)
+    
     # 번역된 텍스트 정리 (HTML 엔티티 등)
     text = clean_translated_text(text)
     
     return text
+
+def clean_ai_response(text):
+    """AI 응답에서 불필요한 설명과 주석 제거"""
+    if not text:
+        return text
+    
+    # 일반적인 AI 응답 패턴들 제거
+    patterns_to_remove = [
+        r'Let me know if you have.*?translate!',
+        r'I\'m ready for.*?challenge\.?',
+        r'\*\*Explanation:\*\*.*?\n',
+        r'\* .*?symbols.*?\.',
+        r'\* I translated.*?\.',
+        r'\* The.*?emphasis\.',
+        r'\* I kept.*?\.',
+        r'Let me know if.*?translate!',
+        r'I\'d be happy to.*?',
+        r'Here\'s the translation.*?:',
+        r'Translation:.*?\n',
+        r'\*\*.*?\*\*.*?\n',
+        r'Explanation:.*?\n',
+        r'Note:.*?\n',
+    ]
+    
+    # 패턴들을 순차적으로 제거
+    for pattern in patterns_to_remove:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+    
+    # 연속된 공백과 줄바꿈 정리
+    text = re.sub(r'\n\s*\n', '\n', text)  # 연속된 빈 줄 제거
+    text = re.sub(r'\s+', ' ', text)  # 연속된 공백을 하나로
+    
+    return text.strip()
 
 def clean_translated_text(text):
     """번역된 텍스트 정리"""
@@ -154,21 +189,9 @@ def clean_translated_text(text):
     # HTML 엔티티 디코딩
     text = html.unescape(text)
     
-    # 일반적인 HTML 엔티티들 추가 처리
-    replacements = {
-        '&amp;': '&',
-        '&lt;': '<',
-        '&gt;': '>',
-        '&nbsp;': ' ',
-        '&#39;': "'",
-        '&quot;': '"'
-    }
-    
-    for entity, char in replacements.items():
-        text = text.replace(entity, char)
-    
     # 불필요한 공백 정리
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
     
     return text
 
@@ -369,7 +392,11 @@ TRANSLATION GUIDELINES:
 OUTPUT FORMAT:
 - Return ONLY the translated text
 - No explanations, notes, or additional commentary
-- Maintain exact same structure and formatting as input"""}, 
+- No phrases like "Let me know if you have any other text"
+- No "Explanation:" or "**Explanation:**" sections
+- No asterisk (*) bullet points or markdown formatting
+- Maintain exact same structure and formatting as input
+- DO NOT add any conversational elements or offers to help further"""}, 
                     {"role": "user", "content": processed_text}
                 ],
                 temperature=0.1,  # 더 일관된 번역을 위해 낮춤
@@ -377,6 +404,9 @@ OUTPUT FORMAT:
             )
             
             translated_text = response.choices[0].message.content.strip()
+            
+            # AI 응답 정리 (불필요한 설명 제거)
+            translated_text = clean_ai_response(translated_text)
             
             # 텍스트 포맷팅 복원
             translated_text = restore_text_formatting(translated_text)
@@ -455,6 +485,8 @@ TRANSLATION GUIDELINES:
 
 Text to translate: "{processed_text}"
 
+IMPORTANT: Return ONLY the translated text. No explanations, no "Let me know if you have any other text", no markdown formatting.
+
 Translation:""",
                     "stream": False,
                     "options": {
@@ -477,6 +509,9 @@ Translation:""",
                 
                 # 따옴표 제거
                 translated_text = translated_text.strip('"\'')
+                
+                # AI 응답 정리 (불필요한 설명 제거)
+                translated_text = clean_ai_response(translated_text)
                 
                 # 텍스트 포맷팅 복원
                 translated_text = restore_text_formatting(translated_text)
