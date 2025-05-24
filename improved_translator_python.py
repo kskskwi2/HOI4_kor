@@ -11,6 +11,7 @@ import requests
 import tempfile
 import atexit
 import html
+import zipfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, send_file, jsonify
@@ -342,19 +343,36 @@ class TranslationService:
             response = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": f"""You are a professional game localization translator. Your task is to translate the following text into {target_lang_name} accurately and naturally.
+                    {"role": "system", "content": f"""You are a professional game localization translator specializing in strategy games, RPGs, and historical simulations. Your task is to translate the following text into {target_lang_name} accurately and naturally.
 
-Important instructions:
-1. DO NOT translate anything between $ symbols (e.g., $PARAM$, $VALUE$). Keep these exactly as they are.
-2. These $ tokens are game variables that should remain untouched.
-3. Translate the rest of the text naturally and in a game-appropriate style.
-4. If you see \\n in the text, preserve it as \\n in the translation.
-5. Maintain any special formatting or punctuation.
-6. Do not add any additional commentary or explanations.
-7. Return ONLY the translated text."""},
+CRITICAL RULES:
+1. NEVER translate anything between $ symbols (e.g., $PARAM$, $VALUE$, $COUNTRY_NAME$). Keep these exactly as they are.
+2. These $ tokens are game variables/placeholders that must remain untouched.
+
+TRANSLATION GUIDELINES:
+3. Use game-appropriate terminology and style for the target language.
+4. Preserve all formatting: \\n for line breaks, special punctuation, numbers, dates.
+5. For abbreviations/acronyms of organizations, expand to full official names:
+   - NATO → North Atlantic Treaty Organization → 북대서양 조약 기구
+   - USSR → Union of Soviet Socialist Republics → 소비에트 사회주의 공화국 연방
+   - EU → European Union → 유럽연합
+6. Use established official translations for:
+   - Historical figures and places
+   - Military ranks and titles
+   - Political/governmental terms
+   - Religious and cultural terms
+7. Maintain consistency in terminology throughout the text.
+8. For numbers with units, preserve the format (e.g., "50 km", "1943년").
+9. Keep proper nouns (character names, place names) in their commonly accepted translated forms.
+10. If uncertain about a specific term, prioritize clarity and common usage over literal translation.
+
+OUTPUT FORMAT:
+- Return ONLY the translated text
+- No explanations, notes, or additional commentary
+- Maintain exact same structure and formatting as input"""}, 
                     {"role": "user", "content": processed_text}
                 ],
-                temperature=0.2,
+                temperature=0.1,  # 더 일관된 번역을 위해 낮춤
                 max_tokens=1024
             )
             
@@ -412,23 +430,37 @@ Important instructions:
                 headers={"Content-Type": "application/json"},
                 json={
                     "model": model,
-                    "prompt": f"""You are a professional game localization translator. Translate the following text into {target_lang_name} accurately and naturally.
+                    "prompt": f"""You are a professional game localization translator specializing in strategy games, RPGs, and historical simulations. Translate the following text into {target_lang_name} accurately and naturally.
 
-Important rules:
-1. DO NOT translate anything between $ symbols (e.g., $PARAM$, $VALUE$). Keep these exactly as they are.
-2. These $ tokens are game variables that should remain untouched.
-3. Translate naturally and in a game-appropriate style.
-4. If you see \\n in the text, preserve it as \\n in the translation.
-5. Maintain any special formatting.
-6. Return ONLY the translated text, no explanations.
+CRITICAL RULES:
+1. NEVER translate anything between $ symbols (e.g., $PARAM$, $VALUE$, $COUNTRY_NAME$). Keep these exactly as they are.
+2. These $ tokens are game variables/placeholders that must remain untouched.
+
+TRANSLATION GUIDELINES:
+3. Use game-appropriate terminology and style for the target language.
+4. Preserve all formatting: \\n for line breaks, special punctuation, numbers, dates.
+5. For abbreviations/acronyms of organizations, expand to full official names:
+   - NATO → North Atlantic Treaty Organization → 북대서양 조약 기구
+   - USSR → Union of Soviet Socialist Republics → 소비에트 사회주의 공화국 연방
+   - EU → European Union → 유럽연합
+6. Use established official translations for:
+   - Historical figures and places
+   - Military ranks and titles  
+   - Political/governmental terms
+   - Religious and cultural terms
+7. Maintain consistency in terminology throughout the text.
+8. For numbers with units, preserve the format (e.g., "50 km", "1943년").
+9. Keep proper nouns (character names, place names) in their commonly accepted translated forms.
+10. If uncertain about a specific term, prioritize clarity and common usage over literal translation.
 
 Text to translate: "{processed_text}"
 
 Translation:""",
                     "stream": False,
                     "options": {
-                        "temperature": 0.2,
-                        "top_p": 0.9
+                        "temperature": 0.1,  # 더 일관된 번역을 위해 낮춤
+                        "top_p": 0.9,
+                        "top_k": 40
                     }
                 },
                 timeout=60  # 60초 타임아웃
@@ -943,7 +975,7 @@ def index():
             <p><strong>2단계:</strong> 번역 API를 선택합니다.</p>
             <p><strong>3단계:</strong> 번역할 언어를 선택합니다.</p>
             <p><strong>4단계:</strong> '번역 시작' 버튼을 클릭하면 파일들이 순차적으로 번역됩니다.</p>
-            <p><strong>5단계:</strong> 번역 완료 후 각 파일의 다운로드 링크가 표시됩니다.</p>
+            <p><strong>5단계:</strong> 번역 완료 후 개별 파일 또는 ZIP 파일로 다운로드할 수 있습니다.</p>
             
             <h3>⚙️ API별 특징</h3>
             <p><strong>구글 클라우드 번역:</strong> 빠른 속도, 환경변수 설정 필요</p>
@@ -954,6 +986,9 @@ def index():
             <p>• AI 번역 시 들여쓰기는 자동으로 줄바꿈(\\n)으로 변환됩니다</p>
             <p>• 게임 변수 ($VARIABLE$) 는 번역되지 않고 보존됩니다</p>
             <p>• HTML 엔티티(&quot;, &amp; 등)가 자동으로 정상 문자로 변환됩니다</p>
+            <p>• 약어와 줄임말을 자동으로 풀어서 번역합니다 (예: NATO → 북대서양 조약 기구)</p>
+            <p>• 역사적, 정치적, 군사적 조직명을 해당 언어의 공식 명칭으로 번역합니다</p>
+            <p>• 여러 파일 선택 시 자동으로 ZIP 파일로 묶어서 다운로드 제공</p>
             <p>• 실시간 진행률 표시 및 예상 완료 시간 제공</p>
             <p>• 대용량 파일 지원 및 시간 제한 없음</p>
             <p>• 번역 캐시로 중복 텍스트 처리 최적화</p>
@@ -1081,12 +1116,28 @@ def index():
                             
                             // 다운로드 링크 생성
                             let links = '<h3>✅ 번역 완료!</h3>';
+                            
+                            // ZIP 다운로드 링크 (파일이 2개 이상일 때)
+                            if(response.zip_download_url) {
+                                links += `<div style="margin-bottom: 20px;">`;
+                                links += `<a href="${response.zip_download_url}" class="download-item" style="background: linear-gradient(45deg, #ff6b6b, #ee5a24); font-size: 18px; padding: 20px 30px;">📦 모든 파일 ZIP 다운로드</a>`;
+                                links += `</div>`;
+                                links += `<h4>개별 파일 다운로드:</h4>`;
+                            }
+                            
+                            // 개별 파일 다운로드 링크
                             response.download_urls.forEach(function(url, index){
                                 const filename = url.split('/').pop();
                                 links += `<a href="${url}" class="download-item">📁 ${filename} 다운로드</a>`;
                             });
+                            
                             $('#downloadLink').html(links);
-                            showSuccess(`총 ${response.download_urls.length}개 파일이 성공적으로 번역되었습니다.`);
+                            
+                            let successMsg = `총 ${response.download_urls.length}개 파일이 성공적으로 번역되었습니다.`;
+                            if(response.zip_download_url) {
+                                successMsg += ' ZIP 파일로 한번에 다운로드하거나 개별적으로 다운로드할 수 있습니다.';
+                            }
+                            showSuccess(successMsg);
                         }
                     },
                     error: function(xhr, status, error) {
@@ -1238,6 +1289,7 @@ def upload_file():
             return jsonify({"error": "Google Cloud Translate API가 설정되지 않았습니다."}), 500
         
         download_urls = []
+        translated_files = []  # 번역된 파일 경로 저장
         
         # 업로드 폴더 생성
         os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
@@ -1285,6 +1337,7 @@ def upload_file():
                     output_file_path = save_paradox_localization(translated_data, safe_filename)
                     download_url = f"/download/{os.path.basename(output_file_path)}"
                     download_urls.append(download_url)
+                    translated_files.append(output_file_path)  # 파일 경로 저장
                 else:
                     logging.error(f"{file.filename}은(는) 지원하지 않는 파일 형식입니다.")
                     
@@ -1302,11 +1355,35 @@ def upload_file():
         if not download_urls:
             return jsonify({"error": "번역할 수 있는 파일이 없습니다."}), 400
         
+        # ZIP 파일 생성 (파일이 2개 이상일 때)
+        zip_download_url = None
+        if len(translated_files) > 1:
+            zip_filename = f"translated_files_{int(time.time())}.zip"
+            zip_path = os.path.join(config.DOWNLOAD_FOLDER, zip_filename)
+            
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file_path in translated_files:
+                        if os.path.exists(file_path):
+                            # ZIP 내에서의 파일명 (경로 없이 파일명만)
+                            arcname = os.path.basename(file_path)
+                            zipf.write(file_path, arcname)
+                
+                zip_download_url = f"/download/{zip_filename}"
+                logging.info(f"ZIP 파일 생성 완료: {zip_filename}")
+                
+            except Exception as e:
+                logging.error(f"ZIP 파일 생성 실패: {e}")
+        
         # 최종 완료 상태 설정
         translation_progress["current"] = 100
         translation_progress["current_item"] = "번역 완료"
         
-        return jsonify({"download_urls": download_urls})
+        response_data = {"download_urls": download_urls}
+        if zip_download_url:
+            response_data["zip_download_url"] = zip_download_url
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logging.error(f"업로드 처리 중 예상치 못한 오류: {e}")
